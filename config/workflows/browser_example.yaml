@@ -1,0 +1,106 @@
+# Browser Workflow Examples
+# These are generic examples without business logic
+
+workflows:
+  # Simple page test
+  - id: browser_test
+    name: Browser Test
+    description: Test browser automation
+    trigger_command: "/run browser-test"
+    enabled: true
+
+    parameters:
+      url: "https://example.com"
+
+    steps:
+      - id: navigate
+        name: Navigate to URL
+        action: browser_navigate
+        params:
+          url: "{{url}}"
+          wait_until: domcontentloaded
+
+      - id: extract_title
+        name: Extract Page Title
+        action: browser_extract_text
+        params:
+          selector: "h1"
+
+      - id: screenshot
+        name: Take Screenshot
+        action: browser_screenshot
+        params:
+          path: "/app/data/screenshots/test.png"
+          full_page: false
+
+    on_error: stop
+
+  # Form interaction example
+  - id: form_example
+    name: Form Interaction Example
+    description: Demonstrates form filling
+    trigger_command: "/run form-example"
+    enabled: true
+
+    parameters:
+      search_term: "test"
+
+    steps:
+      - id: navigate
+        action: browser_navigate
+        params:
+          url: "https://www.google.com"
+          wait_until: networkidle
+
+      - id: fill_search
+        action: browser_fill
+        params:
+          selector: "textarea[name='q']"
+          value: "{{search_term}}"
+
+      - id: screenshot_result
+        action: browser_screenshot
+        params:
+          path: "/app/data/screenshots/search.png"
+
+    on_error: stop
+
+  # Multi-step with extraction
+  - id: data_extraction
+    name: Data Extraction Example
+    description: Extract data from page
+    trigger_command: "/run extract"
+    enabled: true
+
+    parameters:
+      target_url: "https://example.com"
+
+    steps:
+      - id: navigate
+        action: browser_navigate
+        params:
+          url: "{{target_url}}"
+
+      - id: wait_content
+        action: browser_wait
+        params:
+          selector: "body"
+          state: visible
+          timeout: 5000
+
+      - id: get_heading
+        action: browser_extract_text
+        params:
+          selector: "h1"
+
+      - id: get_paragraphs
+        action: browser_extract_all
+        params:
+          selector: "p"
+
+      - id: log_result
+        action: log
+        params:
+          message: "Extracted heading: {{get_heading_output.text}}"
+
+    on_error: continue

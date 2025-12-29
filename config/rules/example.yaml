@@ -1,0 +1,126 @@
+# Example Rules Configuration
+# This file demonstrates rule structure - NOT business logic
+
+rules:
+  # Rule 1: Simple command-triggered rule
+  - id: example_command_rule
+    name: Example Command Rule
+    description: Demonstrates a command-triggered rule structure
+    enabled: true
+    priority: 10
+
+    triggers:
+      - type: command
+        conditions:
+          command: "/example"
+
+    conditions:
+      - field: trigger.args.confirmed
+        operator: eq
+        value: true
+
+    actions:
+      - type: log
+        params:
+          message: "Example rule executed"
+          level: info
+
+      - type: set_variable
+        params:
+          name: result
+          value: "success"
+
+  # Rule 2: Scheduled rule with conditions
+  - id: example_scheduled_rule
+    name: Example Scheduled Rule
+    description: Demonstrates scheduled triggers with conditions
+    enabled: true
+    priority: 5
+
+    triggers:
+      - type: schedule
+        conditions:
+          schedule: "0 * * * *"  # Every hour (cron format)
+
+    conditions:
+      # AND conditions (all must be true)
+      - field: state.system_ready
+        operator: eq
+        value: true
+
+      - field: variables.last_run
+        operator: not_exists
+
+    actions:
+      - type: log
+        params:
+          message: "Scheduled task running"
+
+  # Rule 3: Rule with approval requirement
+  - id: example_approval_rule
+    name: Example Approval Rule
+    description: Demonstrates approval workflow
+    enabled: true
+    priority: 100
+    requires_approval: true
+
+    triggers:
+      - type: command
+        conditions:
+          command: "/sensitive-action"
+
+    conditions: []  # No additional conditions
+
+    actions:
+      - type: log
+        params:
+          message: "Sensitive action approved and executing"
+
+    # Rate limiting
+    max_executions_per_hour: 5
+
+  # Rule 4: Complex conditions example
+  - id: example_complex_conditions
+    name: Complex Conditions Example
+    description: Demonstrates condition operators
+    enabled: false  # Disabled - just for reference
+    priority: 0
+
+    triggers:
+      - type: any
+
+    conditions:
+      # OR condition
+      - or:
+          - field: trigger.status
+            operator: eq
+            value: "ready"
+          - field: trigger.force
+            operator: eq
+            value: true
+
+      # Nested AND inside OR
+      - or:
+          - and:
+              - field: trigger.count
+                operator: gt
+                value: 10
+              - field: trigger.count
+                operator: lt
+                value: 100
+          - field: trigger.override
+            operator: eq
+            value: true
+
+      # Regex matching
+      - field: trigger.email
+        operator: regex
+        value: "^[a-z]+@example\\.com$"
+
+      # Type checking
+      - field: trigger.data
+        operator: is_type
+        value: object
+
+    actions:
+      - type: noop

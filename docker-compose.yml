@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  framework:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: automation-framework
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    ports:
+      - "8080:8080"
+    environment:
+      # Telegram configuration (optional)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS:-}
+      - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID:-}
+      - TELEGRAM_TYPING_DELAY=${TELEGRAM_TYPING_DELAY:-500}
+
+      # Browser configuration
+      - BROWSER_HEADLESS=${BROWSER_HEADLESS:-true}
+      - BROWSER_DATA_DIR=/app/data/browser
+
+      # System configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-console}
+      - CONFIG_PATH=/app/config/framework.yaml
+      - DATA_DIR=/app/data
+      - HEALTH_PORT=8080
+
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+        reservations:
+          memory: 2G
+    networks:
+      - framework-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  framework-net:
+    driver: bridge

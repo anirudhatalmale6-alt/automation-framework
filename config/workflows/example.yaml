@@ -1,0 +1,89 @@
+# Example Workflows Configuration
+# Workflows are sequences of steps triggered by commands
+
+workflows:
+  # Workflow 1: Simple sequential workflow
+  - id: example_workflow
+    name: Example Workflow
+    description: Demonstrates workflow structure
+    enabled: true
+    trigger_command: "/run example"
+
+    # Parameters with defaults
+    parameters:
+      format: "json"
+      verbose: false
+
+    # Sequential steps
+    steps:
+      - id: step_1
+        name: Initialize
+        action: log
+        payload:
+          message: "Starting workflow with format: {{format}}"
+
+      - id: step_2
+        name: Process
+        action: delay
+        payload:
+          seconds: 1
+
+      - id: step_3
+        name: Complete
+        action: set_variable
+        payload:
+          name: workflow_result
+          value: "completed"
+
+    # Error handling: stop, continue, or rollback
+    on_error: stop
+
+  # Workflow 2: Workflow with rollback
+  - id: example_with_rollback
+    name: Workflow With Rollback
+    description: Demonstrates rollback capability
+    enabled: true
+    trigger_command: "/run rollback-example"
+
+    parameters: {}
+
+    steps:
+      - id: create_resource
+        name: Create Resource
+        action: set_variable
+        payload:
+          name: resource_id
+          value: "res_12345"
+        # Rollback action if later steps fail
+        rollback_action: log
+        rollback_payload:
+          message: "Rolling back resource: {{resource_id}}"
+
+      - id: configure_resource
+        name: Configure Resource
+        action: log
+        payload:
+          message: "Configuring resource {{resource_id}}"
+
+    on_error: rollback
+
+  # Workflow 3: Approval-required workflow
+  - id: example_sensitive_workflow
+    name: Sensitive Workflow
+    description: Requires approval before execution
+    enabled: true
+    trigger_command: "/run sensitive"
+    requires_approval: true
+
+    parameters:
+      target: "production"
+
+    steps:
+      - id: confirm
+        name: Confirm Target
+        action: log
+        payload:
+          message: "Executing on target: {{target}}"
+          level: warning
+
+    on_error: stop

@@ -1,0 +1,80 @@
+# Framework Configuration
+# All settings are optional - defaults are provided
+
+name: automation-framework
+version: "0.1.0"
+
+# Throttling - controls execution rate
+throttle:
+  max_concurrent_tasks: 3         # Max parallel tasks
+  max_tasks_per_minute: 20        # Rate limit
+  max_browser_actions_per_minute: 30
+  cooldown_on_error_seconds: 30
+
+# Retry policy
+retry:
+  max_attempts: 3
+  base_delay_seconds: 1.0
+  max_delay_seconds: 300.0        # 5 minutes max
+  exponential_base: 2.0
+  jitter: true                    # Add randomness to prevent thundering herd
+
+# Circuit breaker - stops all execution on repeated failures
+circuit_breaker:
+  failure_threshold: 5            # Open circuit after 5 failures
+  recovery_timeout_seconds: 60    # Try recovery after 1 minute
+  half_open_max_calls: 3          # Test calls before fully closing
+
+# Quarantine - persistent failure tracking
+quarantine:
+  max_failures_before_quarantine: 6
+  cooldown_ladder_seconds:
+    - 1      # Attempt 1: 1 second
+    - 5      # Attempt 2: 5 seconds
+    - 15     # Attempt 3: 15 seconds
+    - 300    # Attempt 4: 5 minutes
+    - 1800   # Attempt 5: 30 minutes
+  auto_reset_after_hours: 24      # Auto-reset quarantine after 24h
+
+# Safety constraints
+safety:
+  max_loop_iterations: 100        # Detect loops
+  max_task_runtime_seconds: 300   # 5 minute timeout per task
+  global_failure_threshold: 10    # Pause if >10 failures in window
+  global_failure_window_seconds: 300
+  require_approval_for_destructive: true
+
+# Resource limits (for low-end hardware)
+resources:
+  max_memory_mb: 4096
+  max_browser_pages: 1            # Single browser tab only
+  cleanup_interval_seconds: 60
+  gc_threshold_mb: 3072
+
+# Telegram (disabled by default)
+telegram:
+  enabled: false
+  # bot_token: "your-bot-token"
+  # allowed_user_ids: []
+  typing_delay_ms: 500
+  message_chunk_size: 4000
+
+# Voice interface (abstraction only)
+voice:
+  enabled: false
+  provider: null                  # No provider lock-in
+  config: {}
+
+# Local LLM (optional)
+llm:
+  enabled: false
+  provider: ollama
+  base_url: "http://localhost:11434"
+  model: "llama3.2:3b"
+  max_tokens: 500
+  timeout_seconds: 30
+
+# Paths
+rules_directory: "./config/rules"
+workflows_directory: "./config/workflows"
+data_directory: "./data"

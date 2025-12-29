@@ -1,0 +1,49 @@
+{
+  "rules": [
+    {
+      "id": "json_example_rule",
+      "name": "JSON Example Rule",
+      "description": "Demonstrates JSON rule format for machine validation",
+      "enabled": true,
+      "priority": 5,
+      "triggers": [
+        {
+          "type": "webhook",
+          "conditions": {
+            "source": "api"
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "field": "trigger.payload.action",
+          "operator": "in",
+          "value": ["create", "update", "delete"]
+        },
+        {
+          "field": "trigger.payload.valid",
+          "operator": "eq",
+          "value": true
+        }
+      ],
+      "actions": [
+        {
+          "type": "log",
+          "params": {
+            "message": "Webhook received: {{trigger.payload.action}}",
+            "level": "info"
+          }
+        },
+        {
+          "type": "set_variable",
+          "params": {
+            "name": "processed",
+            "value": true
+          }
+        }
+      ],
+      "tags": ["webhook", "api"],
+      "max_executions_per_hour": 100
+    }
+  ]
+}
