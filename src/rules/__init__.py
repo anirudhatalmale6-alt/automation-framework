@@ -1,7 +1,7 @@
 """Rules engine module."""
 
-from .engine import RulesEngine
-from .evaluator import ConditionEvaluator
-from .actions import ActionRegistry
+from rules.engine import RulesEngine
+from rules.evaluator import ConditionEvaluator
+from rules.actions import ActionRegistry
 
 __all__ = ["RulesEngine", "ConditionEvaluator", "ActionRegistry"]

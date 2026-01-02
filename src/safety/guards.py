@@ -7,7 +7,7 @@ import sys
 from typing import Optional
 import structlog
 
-from ..core.errors import SafetyError
+from core.errors import SafetyError
 
 
 logger = structlog.get_logger()

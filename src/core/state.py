@@ -11,7 +11,7 @@ from enum import Enum
 
 import aiosqlite
 
-from .errors import FrameworkError
+from core.errors import FrameworkError
 
 
 class TaskStatus(Enum):

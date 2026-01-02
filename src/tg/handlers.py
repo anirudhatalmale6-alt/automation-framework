@@ -9,8 +9,8 @@ from typing import Any, Optional, Callable, Awaitable, List
 from dataclasses import dataclass
 import structlog
 
-from .bot import TelegramBot, TelegramConfig
-from .formatter import MessageFormatter
+from tg.bot import TelegramBot, TelegramConfig
+from tg.formatter import MessageFormatter
 
 logger = structlog.get_logger()
 
@@ -91,10 +91,10 @@ class TelegramHandlers:
         """
         Handle /run command - execute a workflow.
 
-        Usage: /run <workflow_name> [--param=value ...]
+        Usage: /run [workflow_name] [--param=value ...]
         """
         if not args:
-            return "Usage: /run <workflow_name> [--param=value ...]"
+            return "Usage: /run [workflow_name] [--param=value ...]"
 
         if not self.supervisor:
             return "✗ Supervisor not available"
@@ -280,13 +280,13 @@ class TelegramHandlers:
         """
         Handle /reset - reset failure/quarantine.
 
-        Usage: /reset <fingerprint> or /reset all
+        Usage: /reset [fingerprint] or /reset all
         """
         if not self.supervisor:
             return "✗ Supervisor not available"
 
         if not args:
-            return "Usage: /reset <fingerprint> or /reset all"
+            return "Usage: /reset [fingerprint] or /reset all"
 
         try:
             if args[0].lower() == "all":
@@ -343,9 +343,9 @@ class TelegramHandlers:
         command: str,
         args: List[str],
     ) -> Optional[str]:
-        """Handle /approve <id> - approve a request."""
+        """Handle /approve [id] - approve a request."""
         if not args:
-            return "Usage: /approve <approval_id>"
+            return "Usage: /approve [approval_id]"
 
         if not self.supervisor:
             return "✗ Supervisor not available"
@@ -374,9 +374,9 @@ class TelegramHandlers:
         command: str,
         args: List[str],
     ) -> Optional[str]:
-        """Handle /reject <id> - reject a request."""
+        """Handle /reject [id] - reject a request."""
         if not args:
-            return "Usage: /reject <approval_id>"
+            return "Usage: /reject [approval_id]"
 
         if not self.supervisor:
             return "✗ Supervisor not available"

@@ -1,7 +1,7 @@
 """Browser automation module using Playwright."""
 
-from .manager import BrowserManager
-from .actions import BrowserActions
-from .context import BrowserContext
+from browser.manager import BrowserManager
+from browser.actions import BrowserActions
+from browser.context import BrowserContext
 
 __all__ = ["BrowserManager", "BrowserActions", "BrowserContext"]

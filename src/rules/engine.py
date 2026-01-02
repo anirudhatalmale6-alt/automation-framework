@@ -6,11 +6,11 @@ from typing import Any, Optional, Callable, Awaitable
 from dataclasses import dataclass
 import structlog
 
-from ..core.config import RuleDefinition, ConfigLoader
-from ..core.state import StateManager
-from ..core.errors import RuleError, SafetyError
-from .evaluator import ConditionEvaluator, EvaluationContext
-from .actions import ActionRegistry, ActionResult
+from core.config import RuleDefinition, ConfigLoader
+from core.state import StateManager
+from core.errors import RuleError, SafetyError
+from rules.evaluator import ConditionEvaluator, EvaluationContext
+from rules.actions import ActionRegistry, ActionResult
 
 
 logger = structlog.get_logger()

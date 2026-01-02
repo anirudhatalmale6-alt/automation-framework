@@ -1,8 +1,8 @@
 """Core framework components."""
 
-from .config import ConfigLoader, FrameworkConfig
-from .state import StateManager
-from .errors import (
+from core.config import ConfigLoader, FrameworkConfig
+from core.state import StateManager
+from core.errors import (
     FrameworkError,
     ConfigError,
     RuleError,

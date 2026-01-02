@@ -5,11 +5,18 @@ Provides basic Telegram integration without business-specific logic.
 All behavior is config-driven.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
-from typing import Any, Optional, Callable, Awaitable, List
+from typing import Any, Optional, Callable, Awaitable, List, TYPE_CHECKING
 from dataclasses import dataclass
 import structlog
+
+# Only import for type checking to avoid runtime issues
+if TYPE_CHECKING:
+    from telegram import Update, InlineKeyboardMarkup
+    from telegram.ext import ContextTypes
 
 try:
     from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -25,11 +32,8 @@ try:
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
-    Update = Any
-    Bot = Any
-    ContextTypes = Any
 
-from .formatter import MessageFormatter, FormattedMessage
+from tg.formatter import MessageFormatter, FormattedMessage
 
 logger = structlog.get_logger()
 
@@ -72,8 +76,8 @@ class TelegramBot:
         self.config = config
         self.formatter = MessageFormatter(chunk_size=config.message_chunk_size)
 
-        self._app: Optional[Application] = None
-        self._bot: Optional[Bot] = None
+        self._app: Optional[Any] = None
+        self._bot: Optional[Any] = None
         self._running = False
 
         # Callbacks
@@ -99,7 +103,7 @@ class TelegramBot:
 
         # Generic command handler (for custom commands)
         self._app.add_handler(MessageHandler(
-            filters.COMMAND & ~filters.COMMAND.as_reply,
+            filters.COMMAND,
             self._handle_command
         ))
 
@@ -282,10 +286,7 @@ class TelegramBot:
 
     # ==================== Approval Buttons ====================
 
-    def create_approval_buttons(
-        self,
-        approval_id: int,
-    ) -> InlineKeyboardMarkup:
+    def create_approval_buttons(self, approval_id: int) -> Any:
         """
         Create inline keyboard for approval request.
 
@@ -303,10 +304,7 @@ class TelegramBot:
         ]
         return InlineKeyboardMarkup(keyboard)
 
-    def create_confirm_buttons(
-        self,
-        action_id: str,
-    ) -> InlineKeyboardMarkup:
+    def create_confirm_buttons(self, action_id: str) -> Any:
         """
         Create confirm/cancel buttons.
 
@@ -328,7 +326,7 @@ class TelegramBot:
         self,
         options: List[tuple[str, str]],
         columns: int = 2,
-    ) -> InlineKeyboardMarkup:
+    ) -> Any:
         """
         Create menu with multiple buttons.
 
@@ -395,7 +393,7 @@ class TelegramBot:
 
     # ==================== Internal Handlers ====================
 
-    async def _handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_start(self, update: Update, context: Any) -> None:
         """Handle /start command."""
         if not self._is_authorized(update.effective_user.id):
             await update.message.reply_text("Unauthorized")
@@ -406,7 +404,7 @@ class TelegramBot:
             "Use /help to see available commands"
         )
 
-    async def _handle_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_help(self, update: Update, context: Any) -> None:
         """Handle /help command."""
         if not self._is_authorized(update.effective_user.id):
             return
@@ -421,7 +419,7 @@ class TelegramBot:
             "<b>Available Commands</b>\n\n" + "\n".join(commands)
         )
 
-    async def _handle_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_status(self, update: Update, context: Any) -> None:
         """Handle /status command."""
         if not self._is_authorized(update.effective_user.id):
             return
@@ -438,7 +436,7 @@ class TelegramBot:
         else:
             await update.message.reply_html("✓ System operational")
 
-    async def _handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_command(self, update: Update, context: Any) -> None:
         """Handle custom commands."""
         if not self._is_authorized(update.effective_user.id):
             await update.message.reply_text("Unauthorized")
@@ -463,7 +461,7 @@ class TelegramBot:
         else:
             await update.message.reply_text(f"Unknown command: /{command}")
 
-    async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_message(self, update: Update, context: Any) -> None:
         """Handle non-command messages."""
         if not self._is_authorized(update.effective_user.id):
             return
@@ -479,7 +477,7 @@ class TelegramBot:
             except Exception as e:
                 logger.exception("message_handler_error")
 
-    async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_callback(self, update: Update, context: Any) -> None:
         """Handle callback queries (button presses)."""
         query = update.callback_query
 
@@ -496,7 +494,7 @@ class TelegramBot:
                     query.data
                 )
                 if response:
-                    await query.edit_message_text(response, parse_mode=ParseMode.HTML)
+                    await query.edit_message_text(response, parse_mode="HTML")
             except Exception as e:
                 logger.exception("callback_handler_error")
 

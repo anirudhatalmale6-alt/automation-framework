@@ -126,18 +126,20 @@ rules:
 ### Architecture
 
 ```
-src/telegram/
+src/tg/
 ├── bot.py          # Core bot functionality
 ├── handlers.py     # Command and callback handlers
 └── formatter.py    # Human-like message formatting
 ```
+
+Note: Module is named `tg` to avoid conflict with the `telegram` third-party library.
 
 ### TelegramBot
 
 Core bot with human-like interaction.
 
 ```python
-from telegram.bot import TelegramBot, TelegramConfig
+from tg.bot import TelegramBot, TelegramConfig
 
 config = TelegramConfig(
     bot_token="your-token",

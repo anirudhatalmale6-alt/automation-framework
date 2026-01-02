@@ -8,6 +8,7 @@ import asyncio
 import signal
 import sys
 import os
+import logging
 from typing import Optional
 
 import structlog
@@ -18,6 +19,13 @@ from core.state import StateManager
 from orchestrator.supervisor import Supervisor
 from rules.engine import RulesEngine
 
+
+# Configure standard library logging first
+logging.basicConfig(
+    format="%(message)s",
+    stream=sys.stdout,
+    level=logging.INFO,
+)
 
 # Configure structured logging
 structlog.configure(
@@ -105,6 +113,10 @@ class Application:
         self.browser_actions = None
         self.telegram_bot = None
         self.telegram_handlers = None
+        self.voice_provider = None
+        self.voice_handlers = None
+        self.hot_reloader = None
+        self.approval_guard = None
         self._shutdown_event = asyncio.Event()
 
     async def start(self) -> None:
@@ -138,10 +150,22 @@ class Application:
         # Initialize Telegram if enabled
         await self._init_telegram()
 
+        # Initialize Voice if enabled
+        await self._init_voice()
+
+        # Initialize Hot-Reload
+        await self._init_hot_reload()
+
+        # Initialize Approval Guard
+        await self._init_approval_guard()
+
         # Start health server
         health_port = int(os.getenv("HEALTH_PORT", "8080"))
         self.health_server = HealthServer(self.supervisor, port=health_port)
         await self.health_server.start()
+
+        # Send Telegram alert if there were startup config errors
+        await self._notify_startup_errors()
 
         logger.info("application_started")
 
@@ -182,8 +206,8 @@ class Application:
             return
 
         try:
-            from telegram.bot import TelegramBot, TelegramConfig
-            from telegram.handlers import TelegramHandlers
+            from tg.bot import TelegramBot, TelegramConfig
+            from tg.handlers import TelegramHandlers
 
             # Parse allowed users
             allowed_users_str = os.getenv("TELEGRAM_ALLOWED_USERS", "")
@@ -218,9 +242,219 @@ class Application:
         except Exception as e:
             logger.warning("telegram_init_failed", error=str(e))
 
+    async def _init_voice(self) -> None:
+        """Initialize voice provider if configured."""
+        voice_provider_type = os.getenv("VOICE_PROVIDER", "")
+        if not voice_provider_type:
+            logger.info("voice_disabled", reason="no provider configured")
+            return
+
+        try:
+            from voice.interface import VoiceConfig, MockVoiceProvider
+            from voice.handlers import VoiceHandlers
+
+            # Build config from environment
+            config = VoiceConfig(
+                provider_name=voice_provider_type,
+                api_key=os.getenv("VOICE_API_KEY"),
+                api_secret=os.getenv("VOICE_API_SECRET"),
+                account_id=os.getenv("VOICE_ACCOUNT_ID"),
+                default_timeout_seconds=int(os.getenv("VOICE_TIMEOUT", "30")),
+                recording_enabled=os.getenv("VOICE_RECORDING", "false").lower() == "true",
+                tts_voice=os.getenv("VOICE_TTS_VOICE"),
+                tts_language=os.getenv("VOICE_TTS_LANGUAGE", "en-US"),
+            )
+
+            # Use mock provider for testing, or implement real provider
+            if voice_provider_type.lower() == "mock":
+                self.voice_provider = MockVoiceProvider(config)
+            else:
+                # For real providers, users should implement VoiceProvider
+                # and register it here based on provider_type
+                logger.warning(
+                    "voice_provider_not_implemented",
+                    provider=voice_provider_type,
+                    hint="Implement VoiceProvider for your provider or use 'mock' for testing",
+                )
+                return
+
+            self.voice_handlers = VoiceHandlers(self.voice_provider, self.supervisor)
+            await self.voice_handlers.initialize()
+
+            # Register voice action handlers
+            voice_actions = self.voice_handlers.get_action_handlers()
+            for action_name, handler in voice_actions.items():
+                self.supervisor.register_action(action_name, handler)
+                logger.info("voice_action_registered", action=action_name)
+
+            logger.info("voice_started", provider=voice_provider_type, actions=list(voice_actions.keys()))
+
+        except ImportError as e:
+            logger.warning("voice_module_unavailable", error=str(e))
+        except Exception as e:
+            logger.warning("voice_init_failed", error=str(e))
+
+    async def _init_hot_reload(self) -> None:
+        """Initialize hot-reload for config files."""
+        hot_reload_enabled = os.getenv("HOT_RELOAD_ENABLED", "true").lower() == "true"
+        if not hot_reload_enabled:
+            logger.info("hot_reload_disabled")
+            return
+
+        try:
+            from core.hot_reload import HotReloader, HotReloadConfig
+
+            config = HotReloadConfig(
+                enabled=True,
+                check_interval_seconds=int(os.getenv("HOT_RELOAD_INTERVAL", "10")),
+                debounce_seconds=float(os.getenv("HOT_RELOAD_DEBOUNCE", "2.0")),
+                notify_on_error=True,
+                notify_on_success=os.getenv("HOT_RELOAD_NOTIFY_SUCCESS", "false").lower() == "true",
+            )
+
+            self.hot_reloader = HotReloader(
+                config_loader=self.supervisor.config_loader,
+                rules_dir=self.supervisor.config.rules_directory,
+                workflows_dir=self.supervisor.config.workflows_directory,
+                config=config,
+            )
+
+            # Set reload callback
+            self.hot_reloader.set_reload_callback(self.supervisor.apply_hot_reload)
+
+            # Set error callback for Telegram notification
+            if self.telegram_bot and self.telegram_handlers:
+                admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
+                if admin_chat_id:
+                    admin_id = int(admin_chat_id)
+
+                    async def hot_reload_error_handler(message: str, errors: list):
+                        import html
+                        # Escape HTML special chars in error messages
+                        escaped_errors = [html.escape(str(e)) for e in errors[:5]]
+                        error_text = (
+                            f"⚠️ <b>Config Reload Failed</b>\n\n"
+                            f"{html.escape(message)}\n\n"
+                            f"<b>Errors:</b>\n" +
+                            "\n".join(f"• {e}" for e in escaped_errors)
+                        )
+                        await self.telegram_bot.send_message(admin_id, error_text)
+                        logger.info("hot_reload_telegram_alert_sent", admin_id=admin_id)
+
+                    self.hot_reloader.set_error_callback(hot_reload_error_handler)
+
+            await self.hot_reloader.start()
+            logger.info("hot_reload_started", interval=config.check_interval_seconds)
+
+        except Exception as e:
+            logger.warning("hot_reload_init_failed", error=str(e))
+
+    async def _init_approval_guard(self) -> None:
+        """Initialize approval fatigue guard."""
+        approval_guard_enabled = os.getenv("APPROVAL_GUARD_ENABLED", "true").lower() == "true"
+        if not approval_guard_enabled:
+            logger.info("approval_guard_disabled")
+            return
+
+        try:
+            from core.approval_guard import ApprovalFatigueGuard, ApprovalGuardConfig
+
+            config = ApprovalGuardConfig(
+                enabled=True,
+                max_approvals_per_hour=int(os.getenv("APPROVAL_MAX_PER_HOUR", "20")),
+                max_approvals_per_minute=int(os.getenv("APPROVAL_MAX_PER_MINUTE", "5")),
+                burst_limit=int(os.getenv("APPROVAL_BURST_LIMIT", "3")),
+                burst_window_seconds=int(os.getenv("APPROVAL_BURST_WINDOW", "60")),
+                defer_low_priority=os.getenv("APPROVAL_DEFER_LOW", "true").lower() == "true",
+                defer_duration_minutes=int(os.getenv("APPROVAL_DEFER_MINUTES", "30")),
+            )
+
+            self.approval_guard = ApprovalFatigueGuard(config)
+
+            # Set deferred callback for Telegram notification
+            if self.telegram_bot and self.telegram_handlers:
+                admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
+                if admin_chat_id:
+                    admin_id = int(admin_chat_id)
+
+                    async def deferred_approvals_handler(requests: list):
+                        text = (
+                            f"📋 <b>Deferred Approvals Ready</b>\n\n"
+                            f"{len(requests)} approval(s) were deferred and are now ready:\n\n"
+                        )
+                        for req in requests[:5]:
+                            text += f"• {req.description}\n"
+                        if len(requests) > 5:
+                            text += f"\n...and {len(requests) - 5} more"
+                        await self.telegram_bot.send_message(admin_id, text)
+
+                    self.approval_guard.set_deferred_callback(deferred_approvals_handler)
+
+            await self.approval_guard.start()
+            logger.info(
+                "approval_guard_started",
+                max_per_hour=config.max_approvals_per_hour,
+                max_per_minute=config.max_approvals_per_minute,
+            )
+
+        except Exception as e:
+            logger.warning("approval_guard_init_failed", error=str(e))
+
+    async def _notify_startup_errors(self) -> None:
+        """Send Telegram notification if there were config errors at startup."""
+        if not self.supervisor._startup_errors:
+            return
+
+        if not self.telegram_bot:
+            logger.warning(
+                "startup_errors_not_notified",
+                reason="telegram not configured",
+                errors=self.supervisor._startup_errors,
+            )
+            return
+
+        admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
+        if not admin_chat_id:
+            logger.warning(
+                "startup_errors_not_notified",
+                reason="TELEGRAM_ADMIN_CHAT_ID not set",
+                errors=self.supervisor._startup_errors,
+            )
+            return
+
+        try:
+            import html
+            admin_id = int(admin_chat_id)
+            escaped_errors = [html.escape(str(e)) for e in self.supervisor._startup_errors[:5]]
+            error_text = (
+                f"⚠️ <b>Config Errors at Startup</b>\n\n"
+                f"The system started with config errors. Some rules/workflows may not be loaded.\n\n"
+                f"<b>Errors:</b>\n" +
+                "\n".join(f"• {e}" for e in escaped_errors)
+            )
+            if len(self.supervisor._startup_errors) > 5:
+                error_text += f"\n\n...and {len(self.supervisor._startup_errors) - 5} more errors"
+
+            await self.telegram_bot.send_message(admin_id, error_text)
+            logger.info("startup_errors_notified", admin_id=admin_id, count=len(self.supervisor._startup_errors))
+        except Exception as e:
+            logger.error("startup_errors_notify_failed", error=str(e))
+
     async def stop(self) -> None:
         """Stop all components."""
         logger.info("application_stopping")
+
+        # Stop Hot-Reload
+        if self.hot_reloader:
+            await self.hot_reloader.stop()
+
+        # Stop Approval Guard
+        if self.approval_guard:
+            await self.approval_guard.stop()
+
+        # Stop Voice
+        if self.voice_handlers:
+            await self.voice_handlers.shutdown()
 
         # Stop Telegram
         if self.telegram_bot:

@@ -8,9 +8,9 @@ from typing import Any, Callable, Optional
 from enum import Enum
 import heapq
 
-from ..core.config import ThrottleConfig, FrameworkConfig
-from ..core.state import StateManager, TaskStatus
-from ..core.errors import ThrottleError
+from core.config import ThrottleConfig, FrameworkConfig
+from core.state import StateManager, TaskStatus
+from core.errors import ThrottleError
 
 
 @dataclass(order=True)

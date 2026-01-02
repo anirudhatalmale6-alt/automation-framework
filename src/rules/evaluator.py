@@ -5,7 +5,7 @@ import operator
 from typing import Any, Callable, Optional
 from dataclasses import dataclass
 
-from ..core.errors import RuleError
+from core.errors import RuleError
 
 
 @dataclass

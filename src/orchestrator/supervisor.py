@@ -12,16 +12,16 @@ from typing import Any, Callable, Optional, Awaitable
 from enum import Enum
 import structlog
 
-from ..core.config import ConfigLoader, FrameworkConfig, WorkflowDefinition, RuleDefinition
-from ..core.state import StateManager, TaskStatus
-from ..core.errors import (
+from core.config import ConfigLoader, FrameworkConfig, WorkflowDefinition, RuleDefinition
+from core.state import StateManager, TaskStatus
+from core.errors import (
     FrameworkError,
     SafetyError,
     ConfigError,
     ErrorSeverity,
 )
-from .scheduler import TaskScheduler, ScheduledTask
-from .executor import TaskExecutor, WorkflowExecutor, ExecutionResult
+from orchestrator.scheduler import TaskScheduler, ScheduledTask
+from orchestrator.executor import TaskExecutor, WorkflowExecutor, ExecutionResult
 
 
 logger = structlog.get_logger()
@@ -168,6 +168,7 @@ class Supervisor:
         self._rules: list[RuleDefinition] = []
         self._workflows: list[WorkflowDefinition] = []
         self._workflow_commands: dict[str, WorkflowDefinition] = {}
+        self._startup_errors: list[str] = []
 
         # Background tasks
         self._worker_tasks: list[asyncio.Task] = []
@@ -214,8 +215,8 @@ class Supervisor:
             half_open_max_calls=cb_config.half_open_max_calls,
         )
 
-        # Load rules and workflows
-        await self._load_configs()
+        # Load rules and workflows (don't crash on errors - start with partial config)
+        self._startup_errors = await self._load_configs(raise_on_error=False)
 
         # Start worker tasks
         self._state = SupervisorState.RUNNING
@@ -370,13 +371,21 @@ class Supervisor:
         if not parts:
             raise ConfigError("Empty command")
 
-        cmd_name = parts[0].lstrip("/")
-        cmd_args = self._parse_command_args(parts[1:])
+        # Build the full command key (e.g., "run voice-test")
+        full_cmd = command.strip().lstrip("/")
 
-        # Find workflow
-        workflow = self._workflow_commands.get(cmd_name)
+        # Extract just the command name for arg parsing
+        cmd_parts = full_cmd.split()
+        cmd_args = self._parse_command_args(cmd_parts[2:]) if len(cmd_parts) > 2 else {}
+
+        # Find workflow by full command match
+        workflow = self._workflow_commands.get(full_cmd.split("--")[0].strip())
         if not workflow:
-            raise ConfigError(f"Unknown command: {cmd_name}")
+            # Also try just the base command without parameters
+            base_cmd = " ".join(cmd_parts[:2]) if len(cmd_parts) >= 2 else full_cmd
+            workflow = self._workflow_commands.get(base_cmd)
+        if not workflow:
+            raise ConfigError(f"Unknown command: {full_cmd}")
 
         # Merge args with provided parameters
         params = dict(parameters or {})
@@ -611,33 +620,91 @@ class Supervisor:
                         },
                     )
 
-    async def _load_configs(self) -> None:
-        """Load rules and workflows from config directories."""
+    async def _load_configs(self, raise_on_error: bool = True) -> list[str]:
+        """
+        Load rules and workflows from config directories.
+
+        Args:
+            raise_on_error: If True, raises on config errors. If False, logs errors
+                           and continues with empty/partial configs.
+
+        Returns:
+            List of error messages (empty if successful)
+        """
+        errors = []
+
+        # Try loading rules
         try:
             self._rules = self.config_loader.load_rules(
                 self.config.rules_directory
             )
+        except ConfigError as e:
+            error_msg = f"Rules: {e}"
+            errors.append(error_msg)
+            logger.error("rules_load_error", error=str(e))
+            if raise_on_error:
+                raise
+            self._rules = []
+
+        # Try loading workflows
+        try:
             self._workflows = self.config_loader.load_workflows(
                 self.config.workflows_directory
             )
-
-            # Build command lookup
-            self._workflow_commands.clear()
-            for wf in self._workflows:
-                if wf.trigger_command:
-                    cmd = wf.trigger_command.lstrip("/")
-                    self._workflow_commands[cmd] = wf
-
-            logger.info(
-                "configs_loaded",
-                rules=len(self._rules),
-                workflows=len(self._workflows),
-                commands=list(self._workflow_commands.keys()),
-            )
-
         except ConfigError as e:
-            logger.error("config_load_error", error=str(e))
-            raise
+            error_msg = f"Workflows: {e}"
+            errors.append(error_msg)
+            logger.error("workflows_load_error", error=str(e))
+            if raise_on_error:
+                raise
+            self._workflows = []
+
+        # Build command lookup
+        self._workflow_commands.clear()
+        for wf in self._workflows:
+            if wf.trigger_command:
+                cmd = wf.trigger_command.lstrip("/")
+                self._workflow_commands[cmd] = wf
+
+        logger.info(
+            "configs_loaded",
+            rules=len(self._rules),
+            workflows=len(self._workflows),
+            commands=list(self._workflow_commands.keys()),
+            errors=len(errors),
+        )
+
+        return errors
+
+    async def apply_hot_reload(
+        self,
+        rules: list[RuleDefinition],
+        workflows: list[WorkflowDefinition],
+    ) -> None:
+        """
+        Apply hot-reloaded configs without affecting running workflows.
+
+        Called by HotReloader after validation passes.
+        """
+        # Update rules
+        self._rules = rules
+
+        # Update workflows
+        self._workflows = workflows
+
+        # Rebuild command lookup
+        self._workflow_commands.clear()
+        for wf in self._workflows:
+            if wf.trigger_command:
+                cmd = wf.trigger_command.lstrip("/")
+                self._workflow_commands[cmd] = wf
+
+        logger.info(
+            "hot_reload_applied",
+            rules=len(self._rules),
+            workflows=len(self._workflows),
+            commands=list(self._workflow_commands.keys()),
+        )
 
     async def _check_config_changes(self) -> None:
         """Check for config file changes and reload if needed."""

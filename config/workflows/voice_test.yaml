@@ -1,0 +1,25 @@
+workflows:
+  - id: voice_test
+    name: Voice Test
+    trigger_command: /run voice-test
+    steps:
+      - type: voice_make_call
+        params:
+          to_number: "+1234567890"
+        output_key: call_result
+
+      - type: log
+        params:
+          message: "Call initiated"
+
+      - type: delay
+        params:
+          seconds: 2
+
+      - type: voice_end_call
+        params:
+          call_id: "{{call_result.call_id}}"
+
+      - type: log
+        params:
+          message: "Call ended"

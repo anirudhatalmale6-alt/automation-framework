@@ -5,7 +5,7 @@ import re
 from typing import Any, Callable, Optional, Awaitable
 from dataclasses import dataclass, field
 
-from ..core.errors import RuleError, TaskError
+from core.errors import RuleError, TaskError
 
 
 @dataclass

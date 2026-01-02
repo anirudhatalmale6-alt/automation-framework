@@ -11,8 +11,8 @@ from typing import Any, Optional, Callable, Awaitable
 from dataclasses import dataclass
 import structlog
 
-from .manager import BrowserManager
-from .context import BrowserContext, ActionResult as BrowserActionResult
+from browser.manager import BrowserManager
+from browser.context import BrowserContext, ActionResult as BrowserActionResult
 
 logger = structlog.get_logger()
 

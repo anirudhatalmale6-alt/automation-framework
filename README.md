@@ -10,46 +10,61 @@ A modular, config-driven automation framework designed for low-resource environm
 - **Low-Resource**: Runs on i3/8GB RAM with single browser instance
 - **Modular**: Clean separation between orchestration, rules, and actions
 - **Persistent**: Failure tracking survives restarts (SQLite)
+- **Multi-Channel**: Telegram bot + Voice interface abstractions
 
 ## Quick Start
 
-### Docker
+### Docker Compose (Recommended)
 
 ```bash
-# Build
-docker build -t automation-framework .
+# Configure environment
+export TELEGRAM_BOT_TOKEN="your_bot_token"
+export TELEGRAM_ALLOWED_USERS="your_user_id"
 
-# Run
-docker run -d \
-  -v $(pwd)/config:/app/config:ro \
-  -v $(pwd)/data:/app/data \
-  -p 8080:8080 \
-  automation-framework
-```
+# Start
+docker-compose up -d --build
 
-### Docker Compose
-
-```bash
-docker-compose up -d
+# Check health
+curl http://localhost:8080/health
+curl http://localhost:8080/status
 ```
 
 ### Local Development
 
 ```bash
 # Install dependencies
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Run
-python -m src.main
+# Run demo
+python demo.py
+
+# Run full system
+PYTHONPATH=src python -m main
 ```
 
 ## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token | - |
+| `TELEGRAM_ALLOWED_USERS` | Comma-separated user IDs | - |
+| `TELEGRAM_ADMIN_CHAT_ID` | Admin chat for escalations | - |
+| `VOICE_PROVIDER` | Voice provider (`mock` for testing) | - |
+| `VOICE_API_KEY` | Voice provider API key | - |
+| `BROWSER_HEADLESS` | Run browser headless | `true` |
+| `LOG_LEVEL` | Logging level | `INFO` |
 
 ### Framework Settings
 
 Edit `config/framework.yaml`:
 
 ```yaml
+name: automation-framework
+
 throttle:
   max_concurrent_tasks: 3
   max_tasks_per_minute: 20
@@ -61,11 +76,15 @@ retry:
 safety:
   max_loop_iterations: 100
   max_task_runtime_seconds: 300
+
+quarantine:
+  max_failures_before_quarantine: 6
+  cooldown_ladder_seconds: [1, 5, 15, 300, 1800]
 ```
 
 ### Rules
 
-Create rules in `config/rules/*.yaml`:
+Create rules in `config/rules/*.yaml` or `*.json`:
 
 ```yaml
 rules:
@@ -73,8 +92,7 @@ rules:
     name: My Rule
     triggers:
       - type: command
-        conditions:
-          command: "/mycommand"
+        command: "/mycommand"
     conditions:
       - field: trigger.confirmed
         operator: eq
@@ -95,11 +113,27 @@ workflows:
     name: My Workflow
     trigger_command: "/run myworkflow"
     steps:
-      - id: step1
-        action: log
-        payload:
+      - type: log
+        params:
           message: "Step 1"
+      - type: browser_navigate
+        params:
+          url: "https://example.com"
 ```
+
+## Telegram Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Check bot status |
+| `/status` | System health and stats |
+| `/workflows` | List available workflows |
+| `/rules` | List loaded rules |
+| `/run <workflow>` | Execute workflow |
+| `/pause` | Pause execution |
+| `/resume` | Resume execution |
+| `/quarantined` | View quarantined tasks |
+| `/reset <fingerprint>` | Reset failure state |
 
 ## Health Endpoints
 
@@ -107,24 +141,21 @@ workflows:
 |----------|-------------|
 | `GET /health` | Liveness check |
 | `GET /ready` | Readiness check |
-| `GET /status` | Detailed status |
+| `GET /status` | Detailed status (JSON) |
 
 ## Safety Features
 
 ### Anti-Loop Protection
-
-- Error fingerprinting
-- Progressive cooldown ladder
-- Quarantine after repeated failures
+- Error fingerprinting for deduplication
+- Progressive cooldown ladder [1s, 5s, 15s, 5min, 30min]
+- Quarantine after 6 repeated failures
 
 ### Restart Storm Prevention
-
 - Persistent failure state (SQLite)
 - Cooldown enforcement across restarts
 - Auto-pause on high failure rate
 
 ### Circuit Breaker
-
 - Global failure threshold
 - Automatic recovery testing
 - Cascade failure protection
@@ -132,38 +163,77 @@ workflows:
 ## Project Structure
 
 ```
+automation-framework/
 ├── config/
-│   ├── framework.yaml      # Main config
-│   ├── rules/              # Rule definitions
-│   └── workflows/          # Workflow definitions
-├── data/
-│   └── state.db           # SQLite state
-├── docs/
-│   ├── M1-ARCHITECTURE.md
-│   ├── CONFIGURATION.md
-│   └── ANTI-LOOP.md
+│   ├── framework.yaml        # Main configuration
+│   ├── rules/                # Rule definitions (YAML/JSON)
+│   └── workflows/            # Workflow definitions
 ├── src/
-│   ├── core/              # Config, state, errors
-│   ├── orchestrator/      # Supervisor, scheduler
-│   ├── rules/             # Rules engine
-│   ├── safety/            # Guards, throttling
-│   └── main.py            # Entry point
+│   ├── core/                 # Config, state, errors
+│   ├── orchestrator/         # Supervisor, scheduler, executor
+│   ├── rules/                # Rules engine, evaluator, actions
+│   ├── safety/               # Guards, throttling
+│   ├── browser/              # Playwright browser automation
+│   ├── tg/                   # Telegram bot integration
+│   ├── voice/                # Voice call abstraction
+│   └── main.py               # Application entry point
+├── docs/
+│   ├── M1-ARCHITECTURE.md    # Core architecture
+│   ├── M2-BROWSER-TELEGRAM.md # Browser & Telegram
+│   ├── M3-VOICE-INTERFACE.md # Voice interface
+│   ├── CONFIGURATION.md      # Config reference
+│   └── ANTI-LOOP.md          # Anti-loop design
 ├── Dockerfile
 ├── docker-compose.yml
-└── requirements.txt
+├── requirements.txt
+└── demo.py                   # Demo script
 ```
+
+## Modules
+
+### Core (`src/core/`)
+- Configuration loading (YAML/JSON)
+- SQLite state management
+- Error types and fingerprinting
+
+### Orchestrator (`src/orchestrator/`)
+- Supervisor with circuit breaker
+- Priority queue scheduler
+- Task/workflow executor with retry
+
+### Rules (`src/rules/`)
+- Rules engine with trigger matching
+- Condition evaluator (15+ operators)
+- Action registry with variable interpolation
+
+### Browser (`src/browser/`)
+- Single persistent Playwright browser
+- 12 config-driven browser actions
+- Optimized for low-memory environments
+
+### Telegram (`src/tg/`)
+- Bot with human-like typing delays
+- Command handlers for workflow control
+- Inline buttons for approvals
+
+### Voice (`src/voice/`)
+- Provider-agnostic interface
+- Mock provider for testing
+- 10 voice workflow actions
+
+## Documentation
+
+- [Core Architecture](docs/M1-ARCHITECTURE.md)
+- [Browser & Telegram](docs/M2-BROWSER-TELEGRAM.md)
+- [Voice Interface](docs/M3-VOICE-INTERFACE.md)
+- [Configuration Reference](docs/CONFIGURATION.md)
+- [Anti-Loop Design](docs/ANTI-LOOP.md)
 
 ## Milestones
 
 - [x] **M1**: Orchestrator + Rules Engine + Safety Layer
-- [ ] **M2**: Browser Automation + Telegram Integration
-- [ ] **M3**: Voice Interface + Documentation + Packaging
-
-## Documentation
-
-- [Architecture](docs/M1-ARCHITECTURE.md)
-- [Configuration Reference](docs/CONFIGURATION.md)
-- [Anti-Loop Design](docs/ANTI-LOOP.md)
+- [x] **M2**: Browser Automation + Telegram Integration
+- [x] **M3**: Voice Interface + Documentation + Packaging
 
 ## License
 

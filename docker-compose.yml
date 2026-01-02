@@ -8,7 +8,7 @@ services:
     container_name: automation-framework
     restart: unless-stopped
     volumes:
-      - ./config:/app/config:ro
+      - ./config:/app/config
       - ./data:/app/data
       - ./logs:/app/logs
     ports:
@@ -20,9 +20,35 @@ services:
       - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID:-}
       - TELEGRAM_TYPING_DELAY=${TELEGRAM_TYPING_DELAY:-500}
 
+      # Voice configuration (optional)
+      # Set VOICE_PROVIDER=mock for testing without real telephony
+      - VOICE_PROVIDER=${VOICE_PROVIDER:-}
+      - VOICE_API_KEY=${VOICE_API_KEY:-}
+      - VOICE_API_SECRET=${VOICE_API_SECRET:-}
+      - VOICE_ACCOUNT_ID=${VOICE_ACCOUNT_ID:-}
+      - VOICE_TIMEOUT=${VOICE_TIMEOUT:-30}
+      - VOICE_RECORDING=${VOICE_RECORDING:-false}
+      - VOICE_TTS_VOICE=${VOICE_TTS_VOICE:-}
+      - VOICE_TTS_LANGUAGE=${VOICE_TTS_LANGUAGE:-en-US}
+
       # Browser configuration
       - BROWSER_HEADLESS=${BROWSER_HEADLESS:-true}
       - BROWSER_DATA_DIR=/app/data/browser
+
+      # Hot-Reload configuration
+      - HOT_RELOAD_ENABLED=${HOT_RELOAD_ENABLED:-true}
+      - HOT_RELOAD_INTERVAL=${HOT_RELOAD_INTERVAL:-10}
+      - HOT_RELOAD_DEBOUNCE=${HOT_RELOAD_DEBOUNCE:-2.0}
+      - HOT_RELOAD_NOTIFY_SUCCESS=${HOT_RELOAD_NOTIFY_SUCCESS:-false}
+
+      # Approval Fatigue Guard configuration
+      - APPROVAL_GUARD_ENABLED=${APPROVAL_GUARD_ENABLED:-true}
+      - APPROVAL_MAX_PER_HOUR=${APPROVAL_MAX_PER_HOUR:-20}
+      - APPROVAL_MAX_PER_MINUTE=${APPROVAL_MAX_PER_MINUTE:-5}
+      - APPROVAL_BURST_LIMIT=${APPROVAL_BURST_LIMIT:-3}
+      - APPROVAL_BURST_WINDOW=${APPROVAL_BURST_WINDOW:-60}
+      - APPROVAL_DEFER_LOW=${APPROVAL_DEFER_LOW:-true}
+      - APPROVAL_DEFER_MINUTES=${APPROVAL_DEFER_MINUTES:-30}
 
       # System configuration
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

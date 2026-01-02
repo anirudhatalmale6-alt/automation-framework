@@ -1,7 +1,7 @@
 """Orchestrator/Supervisor module."""
 
-from .supervisor import Supervisor
-from .scheduler import TaskScheduler
-from .executor import TaskExecutor
+from orchestrator.supervisor import Supervisor
+from orchestrator.scheduler import TaskScheduler
+from orchestrator.executor import TaskExecutor
 
 __all__ = ["Supervisor", "TaskScheduler", "TaskExecutor"]

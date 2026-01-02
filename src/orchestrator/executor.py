@@ -6,16 +6,20 @@ import random
 from typing import Any, Callable, Optional, Awaitable
 from dataclasses import dataclass
 
-from ..core.config import RetryConfig, FrameworkConfig
-from ..core.state import StateManager, TaskStatus
-from ..core.errors import (
+import structlog
+
+from core.config import RetryConfig, FrameworkConfig
+from core.state import StateManager, TaskStatus
+from core.errors import (
     FrameworkError,
     TaskError,
     SafetyError,
     ErrorSeverity,
     ErrorCategory,
 )
-from .scheduler import ScheduledTask
+from orchestrator.scheduler import ScheduledTask
+
+logger = structlog.get_logger()
 
 
 @dataclass
@@ -91,6 +95,11 @@ class TaskExecutor:
         # Check for handler
         handler = self._handlers.get(task.action)
         if not handler:
+            logger.error(
+                "handler_not_found",
+                action=task.action,
+                available_handlers=list(self._handlers.keys()),
+            )
             error = TaskError(
                 f"No handler registered for action: {task.action}",
                 task_id=task.task_id,
@@ -277,10 +286,15 @@ class WorkflowExecutor:
         executed_steps: list[dict] = []
         step_outputs: list[dict] = []
 
+        logger.info("workflow_execution_started", workflow_id=workflow_id, steps=len(steps))
+
         for i, step in enumerate(steps):
             step_id = step.get("id", f"step_{i}")
-            action = step.get("action")
-            payload = step.get("payload", {})
+            # Support both "action"/"payload" and "type"/"params" naming
+            action = step.get("action") or step.get("type")
+            payload = step.get("payload") or step.get("params", {})
+
+            logger.info("workflow_step_starting", workflow_id=workflow_id, step=i, action=action)
 
             # Interpolate variables in payload
             payload = self._interpolate_variables(payload, variables)
@@ -299,12 +313,25 @@ class WorkflowExecutor:
             result = await self.task_executor.execute(task)
             executed_steps.append(step)
 
+            logger.info(
+                "workflow_step_completed",
+                workflow_id=workflow_id,
+                step=i,
+                action=action,
+                success=result.success,
+                error=str(result.error) if result.error else None,
+            )
+
             if result.success:
                 step_outputs.append(result.output or {})
                 # Update variables with step output
                 if result.output:
                     variables.update(result.output)
                     variables[f"step_{i}_output"] = result.output
+                    # Support output_key to store result under custom name
+                    output_key = step.get("output_key")
+                    if output_key:
+                        variables[output_key] = result.output
             else:
                 if on_error == "stop":
                     return ExecutionResult(
@@ -340,17 +367,39 @@ class WorkflowExecutor:
         """
         Interpolate variables in payload.
 
-        Supports {{variable_name}} syntax.
+        Supports {{variable_name}} and {{variable_name.nested.path}} syntax.
         """
         import re
 
+        def get_nested_value(obj: Any, path: str) -> Any:
+            """Get value from nested dict/object using dot notation."""
+            parts = path.split('.')
+            current = obj
+            for part in parts:
+                if isinstance(current, dict):
+                    current = current.get(part)
+                elif hasattr(current, part):
+                    current = getattr(current, part)
+                else:
+                    return None
+                if current is None:
+                    return None
+            return current
+
         def replace_vars(value: Any) -> Any:
             if isinstance(value, str):
-                pattern = r'\{\{(\w+)\}\}'
+                # Match {{var}} or {{var.nested.path}}
+                pattern = r'\{\{([\w.]+)\}\}'
                 matches = re.findall(pattern, value)
                 for match in matches:
+                    # Try direct lookup first, then nested path
                     if match in variables:
                         var_value = variables[match]
+                    else:
+                        # Handle nested paths like "call_result.call_id"
+                        var_value = get_nested_value(variables, match)
+
+                    if var_value is not None:
                         if value == f"{{{{{match}}}}}":
                             # Entire value is a variable reference
                             return var_value

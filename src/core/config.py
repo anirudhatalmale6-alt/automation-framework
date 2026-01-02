@@ -11,7 +11,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 import jsonschema
 
-from .errors import ConfigError
+from core.errors import ConfigError
 
 
 class ThrottleConfig(BaseModel):
