@@ -130,6 +130,9 @@ class RuleDefinition:
     # Trigger conditions
     triggers: list[dict[str, Any]] = field(default_factory=list)
 
+    # Schedule (cron format: "minute hour day month weekday")
+    schedule: Optional[str] = None
+
     # Conditions that must be true
     conditions: list[dict[str, Any]] = field(default_factory=list)
 
@@ -303,6 +306,7 @@ class ConfigLoader:
                     enabled=rule_data.get("enabled", True),
                     priority=rule_data.get("priority", 0),
                     triggers=rule_data.get("triggers", []),
+                    schedule=rule_data.get("schedule"),
                     conditions=rule_data.get("conditions", []),
                     actions=rule_data.get("actions", []),
                     retry_config=rule_data.get("retry_config"),
@@ -324,7 +328,16 @@ class ConfigLoader:
         data = self._load_file(path)
         workflows = []
 
-        workflow_list = data.get("workflows", [data] if "id" in data else [])
+        # Handle different YAML formats:
+        # 1. List of workflows: [{ id: ... }, { id: ... }]
+        # 2. Dict with workflows key: { workflows: [...] }
+        # 3. Single workflow dict: { id: ..., steps: [...] }
+        if isinstance(data, list):
+            workflow_list = data
+        elif isinstance(data, dict):
+            workflow_list = data.get("workflows", [data] if "id" in data else [])
+        else:
+            workflow_list = []
 
         for wf_data in workflow_list:
             try:

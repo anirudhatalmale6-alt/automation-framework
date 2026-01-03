@@ -1,11 +1,31 @@
 FROM python:3.11-slim
 
-# Install system dependencies
+# Install system dependencies including fonts for proper rendering
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     curl \
     sqlite3 \
+    # Fonts for proper text rendering
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    fonts-noto-cjk \
+    fonts-freefont-ttf \
+    # Additional dependencies for Chromium
+    libnss3 \
+    libxss1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libgtk-3-0 \
+    libdrm2 \
+    libgbm1 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libpango-1.0-0 \
+    libcairo2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -15,8 +35,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright and browser
-RUN playwright install chromium && playwright install-deps chromium
+# Install Playwright and browser with all dependencies
+RUN playwright install chromium --with-deps
 
 # Copy application code
 COPY src/ ./src/

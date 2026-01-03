@@ -57,6 +57,8 @@ services:
       - DATA_DIR=/app/data
       - HEALTH_PORT=8080
 
+    # Shared memory size - CRITICAL for Chromium to work properly
+    shm_size: '2gb'
     deploy:
       resources:
         limits:
@@ -65,6 +67,11 @@ services:
           memory: 2G
     networks:
       - framework-net
+    # Security options for Chromium
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s

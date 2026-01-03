@@ -323,15 +323,25 @@ class WorkflowExecutor:
             )
 
             if result.success:
-                step_outputs.append(result.output or {})
+                # Handle ActionResult objects - extract the output dict
+                output = result.output
+                if output is not None and hasattr(output, 'output'):
+                    # It's an ActionResult object, extract its output
+                    output = output.output if output.output else {}
+                elif output is not None and not isinstance(output, dict):
+                    # Wrap non-dict outputs
+                    output = {"result": output}
+                output = output or {}
+
+                step_outputs.append(output)
                 # Update variables with step output
-                if result.output:
-                    variables.update(result.output)
-                    variables[f"step_{i}_output"] = result.output
+                if output and isinstance(output, dict):
+                    variables.update(output)
+                    variables[f"step_{i}_output"] = output
                     # Support output_key to store result under custom name
                     output_key = step.get("output_key")
                     if output_key:
-                        variables[output_key] = result.output
+                        variables[output_key] = output
             else:
                 if on_error == "stop":
                     return ExecutionResult(

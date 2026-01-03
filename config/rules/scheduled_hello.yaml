@@ -1,0 +1,10 @@
+rules:
+  - id: daily_hello
+    name: Daily Hello Message
+    description: Send hello message on Telegram at 11:30 AM every day
+    enabled: true
+    schedule: "30 11 * * *"
+    actions:
+      - type: telegram_send
+        params:
+          message: "Hello! 👋 This is your scheduled message from the automation framework."

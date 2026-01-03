@@ -173,6 +173,10 @@ class Supervisor:
         # Background tasks
         self._worker_tasks: list[asyncio.Task] = []
         self._maintenance_task: Optional[asyncio.Task] = None
+        self._schedule_task: Optional[asyncio.Task] = None
+
+        # Schedule tracking
+        self._last_schedule_check: dict[str, int] = {}  # rule_id -> last minute checked
 
         # Shutdown coordination
         self._shutdown_event = asyncio.Event()
@@ -230,6 +234,9 @@ class Supervisor:
 
         # Start maintenance task
         self._maintenance_task = asyncio.create_task(self._maintenance_loop())
+
+        # Start schedule runner task
+        self._schedule_task = asyncio.create_task(self._schedule_runner_loop())
 
         logger.info(
             "supervisor_started",
@@ -337,7 +344,13 @@ class Supervisor:
             if self._escalation_handler:
                 await self._escalation_handler(
                     "approval_required",
-                    {"approval_id": approval_id, "workflow": workflow.name},
+                    {
+                        "approval_id": approval_id,
+                        "workflow": workflow.name,
+                        "action_type": "workflow_execution",
+                        "description": f"Execute workflow: {workflow.name}",
+                        "context": {"workflow_id": workflow_id, "parameters": params},
+                    },
                 )
             raise SafetyError(
                 f"Workflow requires approval: {workflow.name}",
@@ -437,6 +450,7 @@ class Supervisor:
     async def _worker_loop(self, worker_id: int) -> None:
         """Worker coroutine that processes tasks from the queue."""
         logger.debug("worker_started", worker_id=worker_id)
+        cb_was_open = False  # Track circuit breaker state to avoid log spam
 
         while not self._shutdown_event.is_set():
             # Check state
@@ -446,9 +460,14 @@ class Supervisor:
 
             # Check circuit breaker
             if not await self.circuit_breaker.allow_request():
-                logger.warning("circuit_breaker_rejected", worker_id=worker_id)
+                if not cb_was_open:
+                    logger.warning("circuit_breaker_open", worker_id=worker_id)
+                    cb_was_open = True
                 await asyncio.sleep(1.0)
                 continue
+            elif cb_was_open:
+                logger.info("circuit_breaker_recovered", worker_id=worker_id)
+                cb_was_open = False
 
             # Get next task
             task = await self.scheduler.get_next_task(timeout=1.0)
@@ -506,6 +525,20 @@ class Supervisor:
         if not error:
             return
 
+        # Always escalate critical/high severity errors to Telegram
+        if self._escalation_handler and error.severity in (ErrorSeverity.CRITICAL, ErrorSeverity.HIGH):
+            await self._escalation_handler(
+                "task_error",
+                {
+                    "task_id": task.task_id,
+                    "workflow_id": task.workflow_id,
+                    "action": task.action,
+                    "error": error.message,
+                    "severity": error.severity.value,
+                    "category": error.category.value if error.category else "unknown",
+                },
+            )
+
         # Record failure in persistent store
         quarantine_config = self.config.quarantine
         record = await self.state_manager.record_failure(
@@ -562,6 +595,117 @@ class Supervisor:
                 break
             except Exception:
                 logger.exception("maintenance_error")
+
+    async def _schedule_runner_loop(self) -> None:
+        """Background task that checks and runs scheduled rules."""
+        import datetime
+
+        logger.info("schedule_runner_started")
+
+        while not self._shutdown_event.is_set():
+            try:
+                await asyncio.sleep(30)  # Check every 30 seconds
+
+                if self._state != SupervisorState.RUNNING:
+                    continue
+
+                now = datetime.datetime.now()
+                current_minute = now.hour * 60 + now.minute
+
+                for rule in self._rules:
+                    if not rule.enabled:
+                        continue
+
+                    schedule = rule.schedule if hasattr(rule, 'schedule') else None
+                    if not schedule:
+                        continue
+
+                    # Check if this schedule matches current time
+                    if self._schedule_matches(schedule, now):
+                        # Avoid running same rule twice in same minute
+                        last_run = self._last_schedule_check.get(rule.id, -1)
+                        if last_run == current_minute:
+                            continue
+
+                        self._last_schedule_check[rule.id] = current_minute
+
+                        logger.info(
+                            "scheduled_rule_triggered",
+                            rule_id=rule.id,
+                            schedule=schedule,
+                        )
+
+                        # Execute rule actions
+                        for action in rule.actions:
+                            action_type = action.get("type") or action.get("action")
+                            params = action.get("params", action.get("payload", {}))
+
+                            try:
+                                handler = self.task_executor._handlers.get(action_type)
+                                if handler:
+                                    await handler(params)
+                                    logger.info(
+                                        "scheduled_action_executed",
+                                        rule_id=rule.id,
+                                        action=action_type,
+                                    )
+                                else:
+                                    logger.warning(
+                                        "scheduled_action_handler_not_found",
+                                        rule_id=rule.id,
+                                        action=action_type,
+                                    )
+                            except Exception as e:
+                                logger.error(
+                                    "scheduled_action_error",
+                                    rule_id=rule.id,
+                                    action=action_type,
+                                    error=str(e),
+                                )
+
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("schedule_runner_error")
+
+        logger.info("schedule_runner_stopped")
+
+    def _schedule_matches(self, schedule: str, dt: 'datetime.datetime') -> bool:
+        """Check if cron schedule matches given datetime."""
+        try:
+            parts = schedule.split()
+            if len(parts) != 5:
+                return False
+
+            minute, hour, day, month, weekday = parts
+
+            # Check minute
+            if minute != '*' and int(minute) != dt.minute:
+                return False
+
+            # Check hour
+            if hour != '*' and int(hour) != dt.hour:
+                return False
+
+            # Check day of month
+            if day != '*' and int(day) != dt.day:
+                return False
+
+            # Check month
+            if month != '*' and int(month) != dt.month:
+                return False
+
+            # Check weekday (0=Monday, 6=Sunday in Python; cron uses 0=Sunday)
+            if weekday != '*':
+                cron_weekday = int(weekday)
+                # Convert cron weekday (0=Sunday) to Python (0=Monday)
+                python_weekday = (cron_weekday - 1) % 7 if cron_weekday > 0 else 6
+                if python_weekday != dt.weekday():
+                    return False
+
+            return True
+        except Exception:
+            return False
 
     async def _check_restart_safety(self) -> None:
         """

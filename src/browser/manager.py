@@ -81,12 +81,11 @@ class BrowserManager:
             # Start Playwright
             self._playwright = await async_playwright().start()
 
-            # Launch browser with resource-optimized settings
+            # Launch browser with settings optimized for Docker/headless
             self._browser = await self._playwright.chromium.launch(
                 headless=self.headless,
                 args=[
                     "--disable-dev-shm-usage",  # Overcome limited /dev/shm in Docker
-                    "--disable-gpu",
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--disable-extensions",
@@ -99,14 +98,30 @@ class BrowserManager:
                     "--no-first-run",
                     "--safebrowsing-disable-auto-update",
                     f"--window-size={self.viewport['width']},{self.viewport['height']}",
+                    # Enable GPU rendering for proper page display
+                    "--enable-features=NetworkService,NetworkServiceInProcess",
+                    "--force-color-profile=srgb",
+                    # Disable features that can cause blank pages
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-ipc-flooding-protection",
+                    # Memory optimization
+                    "--single-process",
+                    "--memory-pressure-off",
                 ],
             )
 
-            # Create persistent context
+            # Create persistent context with full browser capabilities
             self._context = await self._browser.new_context(
                 viewport=self.viewport,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 storage_state=self._get_storage_path() if Path(self._get_storage_path()).exists() else None,
+                java_script_enabled=True,
+                bypass_csp=True,  # Bypass Content Security Policy for scraping
+                ignore_https_errors=True,
+                locale="en-US",
+                timezone_id="America/New_York",
             )
 
             # Create initial page

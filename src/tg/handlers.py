@@ -218,19 +218,21 @@ class TelegramHandlers:
             if not quarantined:
                 return "✓ No quarantined tasks"
 
+            import html
             lines = ["<b>Quarantined Tasks</b>\n"]
 
             for task in quarantined[:10]:
+                task_id_escaped = html.escape(str(task.task_id))
                 lines.append(
                     f"• <code>{task.fingerprint[:12]}</code>\n"
-                    f"  Task: {task.task_id}\n"
+                    f"  Task: {task_id_escaped}\n"
                     f"  Failures: {task.count}"
                 )
 
             if len(quarantined) > 10:
                 lines.append(f"\n... and {len(quarantined) - 10} more")
 
-            lines.append("\nUse /reset <fingerprint> to reset")
+            lines.append("\nUse /reset [fingerprint] to reset")
 
             return "\n".join(lines)
 
@@ -321,16 +323,19 @@ class TelegramHandlers:
             if not approvals:
                 return "✓ No pending approvals"
 
+            import html
             lines = ["<b>Pending Approvals</b>\n"]
 
             for approval in approvals:
+                action_type = html.escape(str(approval.get('action_type', 'unknown')))
+                description = html.escape(str(approval.get('description', ''))[:100])
                 lines.append(
                     f"ID: <code>{approval['id']}</code>\n"
-                    f"Type: {approval['action_type']}\n"
-                    f"Description: {approval['description'][:100]}\n"
+                    f"Type: {action_type}\n"
+                    f"Description: {description}\n"
                 )
 
-            lines.append("\nUse /approve <id> or /reject <id>")
+            lines.append("\nUse /approve [id] or /reject [id]")
 
             return "\n".join(lines)
 
@@ -469,6 +474,21 @@ class TelegramHandlers:
                 status="warning",
                 message="Global failure threshold exceeded",
                 details=f"Failures: {data.get('failures')}/{data.get('threshold')}. Action: {data.get('action')}",
+            )
+            return await self.bot.send_formatted(chat_id, message)
+
+        elif escalation_type == "task_error":
+            import html
+            error_msg = html.escape(str(data.get("error", "Unknown error"))[:500])
+            message = self.formatter.format_error(
+                error=f"Task failed: {error_msg}",
+                context={
+                    "task_id": data.get("task_id"),
+                    "workflow_id": data.get("workflow_id"),
+                    "action": data.get("action"),
+                    "severity": data.get("severity"),
+                    "category": data.get("category"),
+                },
             )
             return await self.bot.send_formatted(chat_id, message)
 

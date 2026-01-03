@@ -547,6 +547,27 @@ class Application:
         self.supervisor.register_action("delay", delay_handler)
         self.supervisor.register_action("log", log_handler)
 
+        # Telegram send action
+        async def telegram_send_handler(payload: dict) -> dict:
+            """Send message to Telegram admin."""
+            if not self.telegram_bot:
+                return {"success": False, "error": "Telegram not configured"}
+
+            admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
+            if not admin_chat_id:
+                return {"success": False, "error": "TELEGRAM_ADMIN_CHAT_ID not set"}
+
+            message = payload.get("message", "")
+            chat_id = payload.get("chat_id", int(admin_chat_id))
+
+            try:
+                await self.telegram_bot.send_message(chat_id, message)
+                return {"success": True, "message": message, "chat_id": chat_id}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+        self.supervisor.register_action("telegram_send", telegram_send_handler)
+
 
 async def main() -> None:
     """Main entry point."""

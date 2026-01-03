@@ -78,7 +78,7 @@ class BrowserContext:
     async def navigate(
         self,
         url: str,
-        wait_until: str = "domcontentloaded",
+        wait_until: str = "networkidle",
         timeout: Optional[int] = None,
     ) -> ActionResult:
         """
@@ -86,21 +86,36 @@ class BrowserContext:
 
         Args:
             url: Target URL
-            wait_until: Wait condition (load, domcontentloaded, networkidle)
+            wait_until: Wait condition (load, domcontentloaded, networkidle, commit)
             timeout: Override default timeout
         """
         start_time = time.monotonic()
         try:
-            await self.page.goto(
+            # Navigate to the URL
+            response = await self.page.goto(
                 url,
                 wait_until=wait_until,
                 timeout=timeout or self.default_timeout,
             )
+
+            # Wait additional time for dynamic content to load
+            await self.page.wait_for_load_state("networkidle")
+
+            # Wait for body to be visible (ensures page has rendered)
+            try:
+                await self.page.wait_for_selector("body", state="visible", timeout=5000)
+            except Exception:
+                pass  # Some pages might not have body visible immediately
+
             self._action_count += 1
 
             return ActionResult(
                 success=True,
-                data={"url": self.page.url, "title": await self.page.title()},
+                data={
+                    "url": self.page.url,
+                    "title": await self.page.title(),
+                    "status": response.status if response else None,
+                },
                 duration_ms=(time.monotonic() - start_time) * 1000,
             )
 
@@ -469,8 +484,15 @@ class BrowserContext:
             path: Optional file path to save
             full_page: Capture full scrollable page
         """
+        import asyncio
         start_time = time.monotonic()
         try:
+            # Wait for page to be fully rendered before screenshot
+            await self.page.wait_for_load_state("networkidle")
+
+            # Small delay to let any final rendering complete
+            await asyncio.sleep(0.5)
+
             screenshot_bytes = await self.page.screenshot(
                 path=path,
                 full_page=full_page,

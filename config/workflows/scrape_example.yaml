@@ -1,0 +1,46 @@
+id: scrape_example
+name: Scrape Website
+description: Example workflow demonstrating browser automation
+trigger_command: /scrape
+enabled: true
+
+parameters:
+  url:
+    type: string
+    default: "https://example.com"
+    description: URL to scrape
+
+steps:
+  - id: log_start
+    type: log
+    params:
+      message: "Starting browser navigation to {{url}}"
+      level: info
+
+  - id: open_page
+    type: browser_navigate
+    params:
+      url: "{{url}}"
+      wait_until: "networkidle"
+      timeout: 60000
+      delay_after: 5000
+    output_key: nav_result
+
+  - id: log_navigated
+    type: log
+    params:
+      message: "Navigation complete. Taking screenshot..."
+      level: info
+
+  - id: screenshot
+    type: browser_screenshot
+    params:
+      path: "/app/data/screenshot.png"
+      full_page: true
+    output_key: screenshot_result
+
+  - id: log_done
+    type: log
+    params:
+      message: "Screenshot saved to /app/data/screenshot.png"
+      level: info

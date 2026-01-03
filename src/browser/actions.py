@@ -59,6 +59,7 @@ class BrowserActions:
         Returns dict of action_name -> handler_function
         """
         return {
+            # Primary action names
             "browser_navigate": self.navigate,
             "browser_click": self.click,
             "browser_fill": self.fill,
@@ -72,6 +73,10 @@ class BrowserActions:
             "browser_evaluate": self.evaluate,
             "browser_scroll": self.scroll,
             "browser_wait_navigation": self.wait_for_navigation,
+            # Aliases for convenience
+            "browser_goto": self.navigate,
+            "browser_extract": self.extract_text,
+            "browser_input": self.fill,
         }
 
     async def navigate(self, params: dict) -> ActionResult:
@@ -80,19 +85,30 @@ class BrowserActions:
 
         Params:
             url: Target URL (required)
-            wait_until: load|domcontentloaded|networkidle (default: domcontentloaded)
+            wait_until: load|domcontentloaded|networkidle (default: networkidle)
+            wait_for: Alias for wait_until
             timeout: Timeout in ms (optional)
+            delay_after: Extra delay in ms after page load (for JS-heavy sites)
         """
         url = params.get("url")
         if not url:
             return ActionResult(success=False, output={}, error="URL is required")
 
+        # Support both wait_until and wait_for as param names
+        wait_until = params.get("wait_until") or params.get("wait_for", "networkidle")
+
         ctx = await self._get_context()
         result = await ctx.navigate(
             url=url,
-            wait_until=params.get("wait_until", "domcontentloaded"),
+            wait_until=wait_until,
             timeout=params.get("timeout"),
         )
+
+        # Extra delay for JS-heavy sites that need time to render
+        delay_after = params.get("delay_after", 0)
+        if delay_after > 0:
+            import asyncio
+            await asyncio.sleep(delay_after / 1000)
 
         return self._convert_result(result)
 
