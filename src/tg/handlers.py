@@ -348,7 +348,7 @@ class TelegramHandlers:
         command: str,
         args: List[str],
     ) -> Optional[str]:
-        """Handle /approve [id] - approve a request."""
+        """Handle /approve [id] - approve a request and execute the workflow."""
         if not args:
             return "Usage: /approve [approval_id]"
 
@@ -357,20 +357,71 @@ class TelegramHandlers:
 
         try:
             approval_id = int(args[0])
+
+            # Get approval details before resolving
+            approval = await self.supervisor.state_manager.get_approval(approval_id)
+            if not approval:
+                return f"✗ Approval not found: {approval_id}"
+
+            if approval.get("status") != "pending":
+                return f"✗ Approval already resolved: {approval_id}"
+
+            # Resolve the approval
             success = await self.supervisor.state_manager.resolve_approval(
                 approval_id,
                 resolution="approved",
                 resolved_by=f"telegram:{chat_id}",
             )
 
-            if success:
-                return f"✓ Approved: {approval_id}"
-            else:
-                return f"✗ Approval not found or already resolved: {approval_id}"
+            if not success:
+                return f"✗ Failed to resolve approval: {approval_id}"
+
+            logger.info("approval_approved", approval_id=approval_id, resolved_by=f"telegram:{chat_id}")
+
+            # Execute the workflow if this was a workflow approval
+            context = approval.get("context", {})
+            workflow_id = context.get("workflow_id")
+
+            if workflow_id and approval.get("action_type") == "workflow_execution":
+                try:
+                    parameters = context.get("parameters", {})
+                    logger.info("executing_approved_workflow",
+                               workflow_id=workflow_id,
+                               approval_id=approval_id,
+                               parameters=parameters)
+
+                    # Execute the workflow (bypassing approval check since already approved)
+                    task_id = await self.supervisor.scheduler.schedule(
+                        action="_workflow",
+                        payload={
+                            "workflow_id": workflow_id,
+                            "parameters": parameters,
+                            "approved": True,
+                            "approval_id": approval_id,
+                        },
+                        workflow_id=workflow_id,
+                    )
+
+                    logger.info("approved_workflow_scheduled",
+                               workflow_id=workflow_id,
+                               task_id=task_id,
+                               approval_id=approval_id)
+
+                    return f"✓ Approved: {approval_id}\n🚀 Workflow '{workflow_id}' scheduled (task: {task_id})"
+
+                except Exception as e:
+                    logger.error("approved_workflow_execution_failed",
+                                workflow_id=workflow_id,
+                                approval_id=approval_id,
+                                error=str(e))
+                    return f"✓ Approved: {approval_id}\n⚠️ Workflow execution failed: {str(e)[:100]}"
+
+            return f"✓ Approved: {approval_id}"
 
         except ValueError:
             return "✗ Invalid approval ID"
         except Exception as e:
+            logger.error("approval_error", error=str(e))
             return f"✗ Error: {str(e)[:200]}"
 
     async def _handle_reject(
@@ -388,6 +439,15 @@ class TelegramHandlers:
 
         try:
             approval_id = int(args[0])
+
+            # Get approval details for logging
+            approval = await self.supervisor.state_manager.get_approval(approval_id)
+            if not approval:
+                return f"✗ Approval not found: {approval_id}"
+
+            if approval.get("status") != "pending":
+                return f"✗ Approval already resolved: {approval_id}"
+
             success = await self.supervisor.state_manager.resolve_approval(
                 approval_id,
                 resolution="rejected",
@@ -395,13 +455,20 @@ class TelegramHandlers:
             )
 
             if success:
-                return f"✓ Rejected: {approval_id}"
+                context = approval.get("context", {})
+                workflow_id = context.get("workflow_id", "unknown")
+                logger.info("approval_rejected",
+                           approval_id=approval_id,
+                           workflow_id=workflow_id,
+                           resolved_by=f"telegram:{chat_id}")
+                return f"✓ Rejected: {approval_id}\n❌ Workflow '{workflow_id}' will not execute"
             else:
-                return f"✗ Approval not found or already resolved: {approval_id}"
+                return f"✗ Failed to reject approval: {approval_id}"
 
         except ValueError:
             return "✗ Invalid approval ID"
         except Exception as e:
+            logger.error("rejection_error", error=str(e))
             return f"✗ Error: {str(e)[:200]}"
 
     # ==================== Callback Handler ====================

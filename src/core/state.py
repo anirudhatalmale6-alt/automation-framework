@@ -517,6 +517,21 @@ class StateManager:
             await self._db.commit()
             return cursor.lastrowid
 
+    async def get_approval(self, approval_id: int) -> Optional[dict]:
+        """Get approval request by ID."""
+        cursor = await self._db.execute(
+            "SELECT * FROM approvals WHERE id = ?",
+            (approval_id,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            result = dict(row)
+            # Parse context JSON
+            if result.get("context_json"):
+                result["context"] = json.loads(result["context_json"])
+            return result
+        return None
+
     async def resolve_approval(
         self,
         approval_id: int,
