@@ -390,12 +390,24 @@ class TelegramHandlers:
                                approval_id=approval_id,
                                parameters=parameters)
 
+                    # Get workflow definition to get steps and on_error
+                    workflow = None
+                    for w in self.supervisor._workflows:
+                        if w.id == workflow_id:
+                            workflow = w
+                            break
+
+                    if not workflow:
+                        return f"✓ Approved: {approval_id}\n⚠️ Workflow '{workflow_id}' not found"
+
                     # Execute the workflow (bypassing approval check since already approved)
                     task_id = await self.supervisor.scheduler.schedule(
                         action="_workflow",
                         payload={
                             "workflow_id": workflow_id,
+                            "steps": workflow.steps,
                             "parameters": parameters,
+                            "on_error": workflow.on_error,
                             "approved": True,
                             "approval_id": approval_id,
                         },
