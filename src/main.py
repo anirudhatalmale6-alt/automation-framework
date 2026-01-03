@@ -542,10 +542,46 @@ class Application:
             logger.log(level.upper(), message)
             return {"logged": True, "message": message}
 
+        async def set_variable_handler(payload: dict) -> dict:
+            """Set a variable in workflow context."""
+            name = payload.get("name")
+            value = payload.get("value")
+            if not name:
+                return {"success": False, "error": "Variable name required"}
+            return {"success": True, name: value}
+
+        async def noop_handler(payload: dict) -> dict:
+            """No operation - useful for testing."""
+            return {"success": True, "action": "noop"}
+
+        async def rollback_handler(payload: dict) -> dict:
+            """Rollback action - logs rollback and returns success."""
+            message = payload.get("message", "Rollback executed")
+            logger.warning("rollback_executed", message=message)
+            return {"success": True, "rolled_back": True, "message": message}
+
+        async def approve_handler(payload: dict) -> dict:
+            """Mark approval as approved."""
+            approval_id = payload.get("approval_id")
+            logger.info("approval_action", action="approve", approval_id=approval_id)
+            return {"success": True, "action": "approved", "approval_id": approval_id}
+
+        async def reject_handler(payload: dict) -> dict:
+            """Mark approval as rejected."""
+            approval_id = payload.get("approval_id")
+            reason = payload.get("reason", "")
+            logger.info("approval_action", action="reject", approval_id=approval_id, reason=reason)
+            return {"success": True, "action": "rejected", "approval_id": approval_id, "reason": reason}
+
         self.supervisor.register_action("echo", echo_handler)
         self.supervisor.register_action("http_request", http_request_handler)
         self.supervisor.register_action("delay", delay_handler)
         self.supervisor.register_action("log", log_handler)
+        self.supervisor.register_action("set_variable", set_variable_handler)
+        self.supervisor.register_action("noop", noop_handler)
+        self.supervisor.register_action("rollback", rollback_handler)
+        self.supervisor.register_action("approve", approve_handler)
+        self.supervisor.register_action("reject", reject_handler)
 
         # Telegram send action
         async def telegram_send_handler(payload: dict) -> dict:
