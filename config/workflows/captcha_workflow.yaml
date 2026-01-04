@@ -1,0 +1,75 @@
+# CAPTCHA Trigger Workflow
+# Ye workflow browser me CAPTCHA page pe navigate karega aur CAPTCHA solve karne ke liye
+# Telegram pe alert bhejega with screenshot
+
+id: captcha_trigger
+name: CAPTCHA Trigger Workflow
+description: Navigate to a page with CAPTCHA, detect it, and alert for manual solving
+enabled: true
+trigger: /run captcha
+
+# Approval required nahi - direct execute hoga
+requires_approval: false
+
+parameters:
+  target_url: "https://example.com/login"  # CAPTCHA wali page URL
+  captcha_selector: "#captcha-image"        # CAPTCHA image selector
+  input_selector: "#captcha-input"          # CAPTCHA input field selector
+  submit_selector: "#submit-btn"            # Submit button selector
+
+steps:
+  # Step 1: Navigate to CAPTCHA page
+  - name: navigate_to_captcha_page
+    action: browser_navigate
+    params:
+      url: "{{ target_url }}"
+      wait_for: "networkidle"
+    on_error: stop
+
+  # Step 2: Wait for CAPTCHA element to load
+  - name: wait_for_captcha
+    action: browser_wait
+    params:
+      selector: "{{ captcha_selector }}"
+      timeout: 10000
+    on_error: continue
+
+  # Step 3: Take screenshot of CAPTCHA
+  - name: screenshot_captcha
+    action: browser_screenshot
+    params:
+      path: "/tmp/screenshots/captcha_{{ timestamp }}.png"
+      full_page: false
+      selector: "{{ captcha_selector }}"
+    on_error: continue
+
+  # Step 4: Full page screenshot for context
+  - name: screenshot_full_page
+    action: browser_screenshot
+    params:
+      path: "/tmp/screenshots/captcha_full_{{ timestamp }}.png"
+      full_page: true
+    on_error: continue
+
+  # Step 5: Log CAPTCHA detected
+  - name: log_captcha_detected
+    action: log
+    params:
+      message: "CAPTCHA detected on {{ target_url }}"
+      level: warning
+
+  # Step 6: Send Telegram alert with screenshot
+  - name: alert_telegram
+    action: telegram_send
+    params:
+      message: |
+        🔐 CAPTCHA Detected!
+
+        URL: {{ target_url }}
+        Screenshot: captcha_{{ timestamp }}.png
+
+        Please solve manually and reply with /captcha_solved
+      photo: "/tmp/screenshots/captcha_{{ timestamp }}.png"
+    on_error: continue
+
+on_error: stop

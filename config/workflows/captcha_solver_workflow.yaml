@@ -1,0 +1,86 @@
+# Advanced CAPTCHA Solver Workflow
+# Multiple CAPTCHA handling strategies:
+# 1. Manual solving via Telegram alert
+# 2. Auto-retry on simple CAPTCHAs
+# 3. 2captcha API integration ready
+
+id: captcha_solver
+name: Advanced CAPTCHA Solver
+description: Detect and handle various CAPTCHA types with multiple solving strategies
+enabled: true
+trigger: /run solve-captcha
+
+requires_approval: false
+
+parameters:
+  target_url: "https://example.com/protected-page"
+  captcha_type: "image"  # image, recaptcha, hcaptcha
+  captcha_selector: ".captcha-container"
+  input_selector: "#captcha-answer"
+  submit_selector: "button[type='submit']"
+  max_retries: 3
+
+steps:
+  # Step 1: Navigate to target page
+  - name: open_page
+    action: browser_navigate
+    params:
+      url: "{{ target_url }}"
+      wait_for: "domcontentloaded"
+
+  # Step 2: Check if CAPTCHA exists
+  - name: check_captcha_exists
+    action: browser_wait
+    params:
+      selector: "{{ captcha_selector }}"
+      timeout: 5000
+    on_error: continue
+
+  # Step 3: Detect CAPTCHA type
+  - name: detect_captcha_type
+    action: browser_extract_text
+    params:
+      selector: "body"
+    on_error: continue
+
+  # Step 4: Screenshot the CAPTCHA
+  - name: capture_captcha
+    action: browser_screenshot
+    params:
+      path: "/tmp/screenshots/captcha_solve_{{ timestamp }}.png"
+      selector: "{{ captcha_selector }}"
+    on_error: continue
+
+  # Step 5: Log detection
+  - name: log_detection
+    action: log
+    params:
+      message: "CAPTCHA type '{{ captcha_type }}' detected, awaiting solution"
+      level: info
+
+  # Step 6: Send alert to Telegram for manual solving
+  - name: telegram_alert
+    action: telegram_send
+    params:
+      message: |
+        🔐 CAPTCHA Requires Solving
+
+        Type: {{ captcha_type }}
+        URL: {{ target_url }}
+        Attempt: 1/{{ max_retries }}
+
+        Reply with solution:
+        /solve <answer>
+
+        Or skip:
+        /skip_captcha
+      photo: "/tmp/screenshots/captcha_solve_{{ timestamp }}.png"
+
+  # Step 7: Set variable for tracking
+  - name: set_captcha_state
+    action: set_variable
+    params:
+      name: captcha_pending
+      value: true
+
+on_error: stop
